@@ -1,0 +1,11 @@
+.mrn-cce-admin-focus-target {
+	border-color: #0ea5e9 !important;
+	box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.25) !important;
+	outline: 2px solid #0ea5e9 !important;
+	outline-offset: 2px !important;
+}
+
+.mrn-cce-admin-focus-target > .acf-label:first-child label,
+.mrn-cce-admin-focus-target label:first-child {
+	color: #075985 !important;
+}

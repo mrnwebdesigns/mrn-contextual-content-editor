@@ -1,0 +1,11 @@
+{
+  "project": "mrn-contextual-content-editor",
+  "release_unit": "standalone-plugin",
+  "baseline": {
+    "pinned_at": "2026-06-30",
+    "repo_path": "/Users/khofmeyer/Development/MRN/plugins/mrn-contextual-content-editor",
+    "integration_target": "mrn-plugin-stack",
+    "integration_mode": "in-repo-plugin",
+    "plugin_version": "0.1.0"
+  }
+}
