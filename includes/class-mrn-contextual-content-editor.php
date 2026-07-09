@@ -535,6 +535,10 @@ final class MRN_Contextual_Content_Editor {
 			),
 		);
 
+		if ( 'page' === $post->post_type ) {
+			unset( $core_fields['content'] );
+		}
+
 		foreach ( $core_fields as $core => $field ) {
 			$score = self::score_text_match( $needle, (string) $field['value'] );
 			if ( $score <= 0 ) {
@@ -576,7 +580,6 @@ final class MRN_Contextual_Content_Editor {
 				wp_get_attachment_image_url( $thumbnail_id, 'large' ),
 				wp_get_attachment_image_url( $thumbnail_id, 'medium_large' ),
 				wp_get_attachment_image_url( $thumbnail_id, 'medium' ),
-				wp_get_attachment_url( $thumbnail_id ),
 			)
 		);
 
@@ -1082,7 +1085,7 @@ final class MRN_Contextual_Content_Editor {
 
 		$alt   = get_post_meta( $attachment_id, '_wp_attachment_image_alt', true );
 		$title = get_the_title( $attachment_id );
-		$url   = wp_get_attachment_url( $attachment_id );
+		$url   = wp_get_attachment_image_url( $attachment_id, 'full' );
 		$text  = is_scalar( $alt ) && '' !== trim( (string) $alt ) ? (string) $alt : (string) $title;
 
 		if ( '' !== $text && $url ) {
