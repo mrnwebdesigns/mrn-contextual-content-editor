@@ -205,6 +205,93 @@
 		}
 	}
 
+	function selectTextNode(root, text) {
+		if (!root || !text) {
+			return false;
+		}
+
+		var needle = text.toLocaleLowerCase();
+		var child = root.firstChild;
+		while (child) {
+			if (child.nodeType === 3) {
+				var value = child.nodeValue || '';
+				var index = value.toLocaleLowerCase().indexOf(needle);
+				if (index !== -1) {
+					var ownerDocument = child.ownerDocument || document;
+					var selection = ownerDocument.defaultView && ownerDocument.defaultView.getSelection ? ownerDocument.defaultView.getSelection() : null;
+					if (!selection) {
+						return false;
+					}
+
+					var range = ownerDocument.createRange();
+					range.setStart(child, index);
+					range.setEnd(child, index + text.length);
+					selection.removeAllRanges();
+					selection.addRange(range);
+					if (child.parentElement) {
+						child.parentElement.scrollIntoView({ block: 'center', behavior: 'smooth' });
+					}
+					return true;
+				}
+			} else if (child.nodeType === 1 && selectTextNode(child, text)) {
+				return true;
+			}
+
+			child = child.nextSibling;
+		}
+
+		return false;
+	}
+
+	function selectMatchingText(field) {
+		var text = String(config.focus_text || '').trim();
+		if (!field || !text) {
+			return false;
+		}
+
+		var textareas = queryAll(field, 'textarea');
+		for (var index = 0; index < textareas.length; index += 1) {
+			var textarea = textareas[index];
+			var editor = textarea.id && window.tinymce && window.tinymce.get ? window.tinymce.get(textarea.id) : null;
+			if (editor && editor.getBody && editor.getBody()) {
+				editor.focus();
+				if (selectTextNode(editor.getBody(), text)) {
+					field.classList.add('mrn-cce-admin-focus-text-match');
+					return true;
+				}
+			}
+
+			var rawIndex = String(textarea.value || '').toLocaleLowerCase().indexOf(text.toLocaleLowerCase());
+			if (rawIndex !== -1 && textarea.setSelectionRange) {
+				if (isVisible(textarea)) {
+					try {
+						textarea.focus({ preventScroll: true });
+					} catch (error) {
+						textarea.focus();
+					}
+				}
+				textarea.setSelectionRange(rawIndex, rawIndex + text.length);
+				field.classList.add('mrn-cce-admin-focus-text-match');
+				return true;
+			}
+		}
+
+		var frames = queryAll(field, 'iframe');
+		for (var frameIndex = 0; frameIndex < frames.length; frameIndex += 1) {
+			var frame = frames[frameIndex];
+			var frameBody = frame.contentDocument && frame.contentDocument.body ? frame.contentDocument.body : null;
+			if (frameBody && selectTextNode(frameBody, text)) {
+				if (frame.contentWindow) {
+					frame.contentWindow.focus();
+				}
+				field.classList.add('mrn-cce-admin-focus-text-match');
+				return true;
+			}
+		}
+
+		return false;
+	}
+
 	function markAndScroll(element) {
 		if (!element) {
 			return false;
@@ -250,7 +337,13 @@
 
 		revealAcfContainers(field);
 		revealAcfTabs(field);
-		return markAndScroll(field);
+		var focused = markAndScroll(field);
+		if (focused && config.focus_text) {
+			window.setTimeout(function () {
+				selectMatchingText(field);
+			}, 80);
+		}
+		return focused;
 	}
 
 	function focusCoreField() {
@@ -286,5 +379,6 @@
 	document.addEventListener('DOMContentLoaded', function () {
 		window.setTimeout(runFocus, 250);
 		window.setTimeout(runFocus, 900);
+		window.setTimeout(runFocus, 1600);
 	});
 }());

@@ -3,7 +3,7 @@
 ## Baseline Snapshot
 - Date pinned: 2026-06-30
 - Plugin source path: `/Users/khofmeyer/Development/MRN/plugins/mrn-contextual-content-editor`
-- Current plugin version: `0.1.0`
+- Current plugin version: `0.4.10`
 - Intended integration target: mrn-plugin-stack
 - Current release model: in-repo standard plugin release unit
 

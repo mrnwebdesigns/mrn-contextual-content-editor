@@ -3,7 +3,7 @@
  * Plugin Name: MRN Contextual Content Editor
  * Description: Adds a logged-in front-end contextual menu that opens matching Classic Editor and ACF fields for the current content.
  * Author: MRN Web Designs
- * Version: 0.1.0
+ * Version: 0.4.10
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -42,5 +42,21 @@ if ( ! function_exists( 'mrn_contextual_content_editor_attrs' ) ) {
 	 */
 	function mrn_contextual_content_editor_attrs( $args = array() ) {
 		return MRN_Contextual_Content_Editor::get_data_attributes( is_array( $args ) ? $args : array() );
+	}
+}
+
+if ( ! function_exists( 'mrn_contextual_content_editor_inject_attrs' ) ) {
+	/**
+	 * Add contextual editor attributes to rendered markup.
+	 *
+	 * Pass `target_class` when helper markup precedes the content root that
+	 * should provide contextual scope to its descendants.
+	 *
+	 * @param string               $markup Rendered HTML.
+	 * @param array<string, mixed> $args   Attribute values.
+	 * @return string
+	 */
+	function mrn_contextual_content_editor_inject_attrs( $markup, $args = array() ) {
+		return MRN_Contextual_Content_Editor::inject_data_attributes( $markup, is_array( $args ) ? $args : array() );
 	}
 }

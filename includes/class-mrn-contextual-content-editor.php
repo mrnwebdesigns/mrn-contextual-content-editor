@@ -12,7 +12,7 @@ if ( ! defined( 'MRN_CONTEXTUAL_CONTENT_EDITOR_URL' ) ) {
 }
 
 final class MRN_Contextual_Content_Editor {
-	const VERSION      = '0.1.0';
+	const VERSION      = '0.4.10';
 	const AJAX_ACTION  = 'mrn_cce_resolve_target';
 	const AJAX_NONCE   = 'mrn_cce_resolve_target';
 	const SCRIPT_HANDLE = 'mrn-contextual-content-editor';
@@ -31,6 +31,33 @@ final class MRN_Contextual_Content_Editor {
 		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'enqueue_admin_assets' ), 30 );
 		add_action( 'admin_bar_menu', array( __CLASS__, 'add_admin_bar_nodes' ), 2000 );
 		add_action( 'wp_ajax_' . self::AJAX_ACTION, array( __CLASS__, 'resolve_target_ajax' ) );
+		add_filter( 'mrn_base_stack_admin_initial_flexible_row_collapse_enabled', array( __CLASS__, 'suppress_initial_acf_collapse_for_focus_request' ), PHP_INT_MAX, 2 );
+		add_filter( 'mrn_base_stack_admin_initial_repeater_row_collapse_enabled', array( __CLASS__, 'suppress_initial_acf_collapse_for_focus_request' ), PHP_INT_MAX, 2 );
+	}
+
+	/**
+	 * Keep ACF rows open when a contextual edit link targets an ACF field.
+	 *
+	 * The base stack normally collapses flexible-content and repeater rows after
+	 * the editor becomes idle. That late collapse can hide or move the field this
+	 * plugin has just revealed and focused. Final-priority filters preserve the
+	 * normal collapse behavior for every non-contextual editor request.
+	 *
+	 * @param bool   $enabled   Whether initial row collapsing is enabled.
+	 * @param string $post_type Current post type slug.
+	 * @return bool
+	 */
+	public static function suppress_initial_acf_collapse_for_focus_request( $enabled, $post_type = '' ) {
+		if ( ! is_admin() ) {
+			return (bool) $enabled;
+		}
+
+		$focus = self::get_admin_focus_request();
+		if ( ! empty( $focus['acf_key'] ) || ! empty( $focus['acf_name'] ) ) {
+			return false;
+		}
+
+		return (bool) $enabled;
 	}
 
 	/**
@@ -52,8 +79,7 @@ final class MRN_Contextual_Content_Editor {
 		$wp_admin_bar->add_node(
 			array(
 				'id'    => 'mrn-cce-root',
-				'title' => esc_html__( 'Context Edit', 'mrn-contextual-content-editor' ),
-				'href'  => '#',
+				'title' => esc_html__( 'Context Edit: Off', 'mrn-contextual-content-editor' ),
 			)
 		);
 
@@ -61,8 +87,8 @@ final class MRN_Contextual_Content_Editor {
 			array(
 				'id'     => 'mrn-cce-toggle',
 				'parent' => 'mrn-cce-root',
-				'title'  => esc_html__( 'Toggle Hover Menu', 'mrn-contextual-content-editor' ),
-				'href'   => '#',
+				'title'  => esc_html__( 'Turn Context Edit off (Ctrl/Command+Shift+E)', 'mrn-contextual-content-editor' ),
+				'href'   => esc_url( get_permalink( $post_id ) ),
 			)
 		);
 
@@ -116,14 +142,20 @@ final class MRN_Contextual_Content_Editor {
 				'nonce'       => wp_create_nonce( self::AJAX_NONCE ),
 				'postId'      => $post_id,
 				'strings'     => array(
-					'editThis'      => __( 'Edit', 'mrn-contextual-content-editor' ),
-					'editPage'      => __( 'Page', 'mrn-contextual-content-editor' ),
+					'editCompact'   => __( 'Edit', 'mrn-contextual-content-editor' ),
+					'contextOff'    => __( 'Context Edit: Off', 'mrn-contextual-content-editor' ),
+					'contextOn'     => __( 'Context Edit: On', 'mrn-contextual-content-editor' ),
+					'editThis'      => __( 'Find matching field', 'mrn-contextual-content-editor' ),
+					'editPage'      => __( 'Edit page', 'mrn-contextual-content-editor' ),
 					'finding'       => __( 'Finding field...', 'mrn-contextual-content-editor' ),
 					'noMatch'       => __( 'No exact field match found.', 'mrn-contextual-content-editor' ),
 					'openBest'      => __( 'Open best match', 'mrn-contextual-content-editor' ),
 					'pickerOff'     => __( 'Context edit menu off', 'mrn-contextual-content-editor' ),
 					'pickerOn'      => __( 'Context edit menu on', 'mrn-contextual-content-editor' ),
+					'quickEdit'     => __( 'Quick edit', 'mrn-contextual-content-editor' ),
 					'resolveFailed' => __( 'Could not resolve this content.', 'mrn-contextual-content-editor' ),
+					'turnOff'       => __( 'Turn Context Edit off', 'mrn-contextual-content-editor' ),
+					'turnOn'        => __( 'Turn Context Edit on', 'mrn-contextual-content-editor' ),
 				),
 			)
 		);
@@ -295,6 +327,7 @@ final class MRN_Contextual_Content_Editor {
 			'acf_key'  => '',
 			'acf_name' => '',
 			'core'     => '',
+			'focus_text' => '',
 			'label'    => '',
 		);
 
@@ -313,6 +346,10 @@ final class MRN_Contextual_Content_Editor {
 
 		if ( isset( $_GET['mrn_cce_focus_label'] ) ) {
 			$focus['label'] = sanitize_text_field( wp_unslash( $_GET['mrn_cce_focus_label'] ) );
+		}
+
+		if ( isset( $_GET['mrn_cce_focus_text'] ) ) {
+			$focus['focus_text'] = self::limit_string( sanitize_text_field( wp_unslash( $_GET['mrn_cce_focus_text'] ) ), 300 );
 		}
 
 		if ( isset( $_GET['mrn_cce_focus_path'] ) ) {
@@ -335,12 +372,33 @@ final class MRN_Contextual_Content_Editor {
 	 * @return string
 	 */
 	public static function get_data_attributes( array $args ) {
+		$attrs = self::get_attributes( $args );
+		$output = '';
+		foreach ( $attrs as $name => $value ) {
+			$output .= ' ' . esc_attr( $name ) . '="' . esc_attr( $value ) . '"';
+		}
+
+		return $output;
+	}
+
+	/**
+	 * Build contextual editor data attributes as a name/value map.
+	 *
+	 * Attributes are emitted only for authenticated users who can edit the
+	 * referenced post, keeping public markup completely unchanged.
+	 *
+	 * @param array<string, mixed> $args Attribute values.
+	 * @return array<string, string>
+	 */
+	public static function get_attributes( array $args ) {
 		$attrs = array();
 
 		$post_id = isset( $args['post_id'] ) ? absint( $args['post_id'] ) : 0;
-		if ( $post_id > 0 ) {
-			$attrs['data-mrn-cce-post-id'] = (string) $post_id;
+		if ( $post_id <= 0 || ! is_user_logged_in() || ! current_user_can( 'edit_post', $post_id ) ) {
+			return $attrs;
 		}
+
+		$attrs['data-mrn-cce-post-id'] = (string) $post_id;
 
 		if ( ! empty( $args['acf_key'] ) ) {
 			$attrs['data-mrn-cce-acf-key'] = sanitize_key( (string) $args['acf_key'] );
@@ -361,12 +419,56 @@ final class MRN_Contextual_Content_Editor {
 			$attrs['data-mrn-cce-label'] = sanitize_text_field( (string) $args['label'] );
 		}
 
-		$output = '';
-		foreach ( $attrs as $name => $value ) {
-			$output .= ' ' . esc_attr( $name ) . '="' . esc_attr( $value ) . '"';
+		if ( ! empty( $args['scope_field_key'] ) ) {
+			$attrs['data-mrn-cce-scope-field-key'] = sanitize_key( (string) $args['scope_field_key'] );
 		}
 
-		return $output;
+		if ( ! empty( $args['scope_field_name'] ) ) {
+			$attrs['data-mrn-cce-scope-field-name'] = sanitize_key( (string) $args['scope_field_name'] );
+		}
+
+		if ( isset( $args['scope_row'] ) && is_numeric( $args['scope_row'] ) ) {
+			$attrs['data-mrn-cce-scope-row'] = (string) max( 0, (int) $args['scope_row'] );
+		}
+
+		if ( ! empty( $args['scope_layout'] ) ) {
+			$attrs['data-mrn-cce-scope-layout'] = sanitize_key( (string) $args['scope_layout'] );
+		}
+
+		return $attrs;
+	}
+
+	/**
+	 * Add contextual editor attributes to rendered markup.
+	 *
+	 * By default attributes are added to the first element. Callers that render
+	 * helper elements before their actual content root can provide a
+	 * `target_class` argument to select that root instead.
+	 *
+	 * @param string               $markup Rendered HTML.
+	 * @param array<string, mixed> $args   Attribute values.
+	 * @return string
+	 */
+	public static function inject_data_attributes( $markup, array $args ) {
+		$markup = is_string( $markup ) ? $markup : '';
+		$attrs  = self::get_attributes( $args );
+		if ( '' === trim( $markup ) || empty( $attrs ) || ! class_exists( 'WP_HTML_Tag_Processor' ) ) {
+			return $markup;
+		}
+
+		$processor    = new WP_HTML_Tag_Processor( $markup );
+		$target_class = isset( $args['target_class'] ) ? sanitize_html_class( (string) $args['target_class'] ) : '';
+		$query        = '' !== $target_class ? array( 'class_name' => $target_class ) : null;
+		$found        = null === $query ? $processor->next_tag() : $processor->next_tag( $query );
+		if ( ! $found ) {
+			return $markup;
+		}
+
+		foreach ( $attrs as $name => $value ) {
+			$processor->set_attribute( $name, $value );
+		}
+
+		return $processor->get_updated_html();
 	}
 
 	/**
@@ -425,11 +527,15 @@ final class MRN_Contextual_Content_Editor {
 			$direct = $raw_context['direct'];
 
 			$context['direct'] = array(
-				'acf_key'  => isset( $direct['acfKey'] ) && is_scalar( $direct['acfKey'] ) ? sanitize_key( (string) $direct['acfKey'] ) : '',
-				'acf_name' => isset( $direct['acfName'] ) && is_scalar( $direct['acfName'] ) ? sanitize_key( (string) $direct['acfName'] ) : '',
-				'core'     => isset( $direct['core'] ) && is_scalar( $direct['core'] ) ? sanitize_key( (string) $direct['core'] ) : '',
-				'label'    => isset( $direct['label'] ) && is_scalar( $direct['label'] ) ? sanitize_text_field( (string) $direct['label'] ) : '',
-				'post_id'  => isset( $direct['postId'] ) && is_scalar( $direct['postId'] ) ? absint( $direct['postId'] ) : 0,
+				'acf_key'          => isset( $direct['acfKey'] ) && is_scalar( $direct['acfKey'] ) ? sanitize_key( (string) $direct['acfKey'] ) : '',
+				'acf_name'         => isset( $direct['acfName'] ) && is_scalar( $direct['acfName'] ) ? sanitize_key( (string) $direct['acfName'] ) : '',
+				'core'             => isset( $direct['core'] ) && is_scalar( $direct['core'] ) ? sanitize_key( (string) $direct['core'] ) : '',
+				'label'            => isset( $direct['label'] ) && is_scalar( $direct['label'] ) ? sanitize_text_field( (string) $direct['label'] ) : '',
+				'post_id'          => isset( $direct['postId'] ) && is_scalar( $direct['postId'] ) ? absint( $direct['postId'] ) : 0,
+				'scope_field_key'  => isset( $direct['scopeFieldKey'] ) && is_scalar( $direct['scopeFieldKey'] ) ? sanitize_key( (string) $direct['scopeFieldKey'] ) : '',
+				'scope_field_name' => isset( $direct['scopeFieldName'] ) && is_scalar( $direct['scopeFieldName'] ) ? sanitize_key( (string) $direct['scopeFieldName'] ) : '',
+				'scope_layout'     => isset( $direct['scopeLayout'] ) && is_scalar( $direct['scopeLayout'] ) ? sanitize_key( (string) $direct['scopeLayout'] ) : '',
+				'scope_row'        => isset( $direct['scopeRow'] ) && is_scalar( $direct['scopeRow'] ) && is_numeric( $direct['scopeRow'] ) ? max( 0, (int) $direct['scopeRow'] ) : null,
 			);
 		}
 
@@ -502,7 +608,8 @@ final class MRN_Contextual_Content_Editor {
 			120,
 			__( 'Marked field', 'mrn-contextual-content-editor' ),
 			self::context_preview( $context ),
-			array()
+			array(),
+			self::context_text( $context )
 		);
 	}
 
@@ -614,6 +721,18 @@ final class MRN_Contextual_Content_Editor {
 			return;
 		}
 
+		$scoped_target_start = count( $targets );
+		if ( self::add_scoped_acf_targets( $targets, $post, $context, $fields ) ) {
+			/*
+			 * Keep the clicked row's matches first without throwing away useful
+			 * alternatives elsewhere on the page. Exact template attributes use
+			 * score 120, so the scoped boost deliberately remains below that.
+			 */
+			for ( $index = $scoped_target_start, $count = count( $targets ); $index < $count; $index++ ) {
+				$targets[ $index ]['score'] = min( 119, (int) $targets[ $index ]['score'] + 3 );
+			}
+		}
+
 		foreach ( $fields as $field ) {
 			if ( ! is_array( $field ) ) {
 				continue;
@@ -621,6 +740,95 @@ final class MRN_Contextual_Content_Editor {
 
 			self::add_acf_field_targets( $targets, $post->ID, $field, isset( $field['value'] ) ? $field['value'] : null, $context, array(), array(), 0 );
 		}
+	}
+
+	/**
+	 * Resolve matches inside an explicitly marked flexible/repeater row.
+	 *
+	 * @param array<int, array<string, mixed>>    $targets Target list.
+	 * @param WP_Post                            $post    Post object.
+	 * @param array<string, mixed>               $context Front-end context.
+	 * @param array<string, array<string, mixed>> $fields Top-level ACF fields.
+	 * @return bool True when a valid row scope was applied.
+	 */
+	private static function add_scoped_acf_targets( array &$targets, WP_Post $post, array $context, array $fields ) {
+		$direct = isset( $context['direct'] ) && is_array( $context['direct'] ) ? $context['direct'] : array();
+		$key    = isset( $direct['scope_field_key'] ) ? (string) $direct['scope_field_key'] : '';
+		$name   = isset( $direct['scope_field_name'] ) ? (string) $direct['scope_field_name'] : '';
+		if ( ( '' === $key && '' === $name ) || ! isset( $direct['scope_row'] ) ) {
+			return false;
+		}
+
+		$scope_field = null;
+		foreach ( $fields as $field ) {
+			if ( ! is_array( $field ) ) {
+				continue;
+			}
+
+			$field_key  = isset( $field['key'] ) && is_scalar( $field['key'] ) ? sanitize_key( (string) $field['key'] ) : '';
+			$field_name = isset( $field['name'] ) && is_scalar( $field['name'] ) ? sanitize_key( (string) $field['name'] ) : '';
+			if ( ( '' !== $key && $key === $field_key ) || ( '' !== $name && $name === $field_name ) ) {
+				$scope_field = $field;
+				break;
+			}
+		}
+
+		if ( ! is_array( $scope_field ) ) {
+			return false;
+		}
+
+		$type      = isset( $scope_field['type'] ) && is_scalar( $scope_field['type'] ) ? sanitize_key( (string) $scope_field['type'] ) : '';
+		$rows      = isset( $scope_field['value'] ) && is_array( $scope_field['value'] ) ? $scope_field['value'] : array();
+		$row_index = max( 0, (int) $direct['scope_row'] );
+		$row       = isset( $rows[ $row_index ] ) && is_array( $rows[ $row_index ] ) ? $rows[ $row_index ] : null;
+		if ( ! is_array( $row ) || ! in_array( $type, array( 'flexible_content', 'repeater' ), true ) ) {
+			return false;
+		}
+
+		$field_label = isset( $scope_field['label'] ) && is_scalar( $scope_field['label'] ) ? sanitize_text_field( (string) $scope_field['label'] ) : self::humanize_key( $name );
+		$path        = array_filter( array( $field_label ) );
+		$focus_path  = array( self::acf_focus_field_entry( $scope_field ) );
+		$sub_fields  = array();
+
+		if ( 'flexible_content' === $type ) {
+			$layout_name = isset( $row['acf_fc_layout'] ) && is_scalar( $row['acf_fc_layout'] ) ? sanitize_key( (string) $row['acf_fc_layout'] ) : '';
+			$scope_layout = isset( $direct['scope_layout'] ) ? (string) $direct['scope_layout'] : '';
+			if ( '' === $layout_name || ( '' !== $scope_layout && $scope_layout !== $layout_name ) ) {
+				return false;
+			}
+
+			$layouts = isset( $scope_field['layouts'] ) && is_array( $scope_field['layouts'] ) ? self::index_acf_layouts( $scope_field['layouts'] ) : array();
+			if ( empty( $layouts[ $layout_name ]['sub_fields'] ) || ! is_array( $layouts[ $layout_name ]['sub_fields'] ) ) {
+				return false;
+			}
+
+			$layout_label = isset( $layouts[ $layout_name ]['label'] ) && is_scalar( $layouts[ $layout_name ]['label'] )
+				? sanitize_text_field( (string) $layouts[ $layout_name ]['label'] )
+				: self::humanize_key( $layout_name );
+			$path[]       = self::acf_flexible_row_label( $row, $layout_label, $row_index );
+			$focus_path[] = self::acf_focus_row_entry( 'flexible_content', $row_index, $layout_name );
+			$sub_fields   = $layouts[ $layout_name ]['sub_fields'];
+		} else {
+			if ( empty( $scope_field['sub_fields'] ) || ! is_array( $scope_field['sub_fields'] ) ) {
+				return false;
+			}
+
+			$path[]       = self::acf_repeater_row_label( $row, $row_index );
+			$focus_path[] = self::acf_focus_row_entry( 'repeater', $row_index );
+			$sub_fields   = $scope_field['sub_fields'];
+		}
+
+		foreach ( $sub_fields as $sub_field ) {
+			if ( ! is_array( $sub_field ) ) {
+				continue;
+			}
+
+			$sub_name  = isset( $sub_field['name'] ) && is_scalar( $sub_field['name'] ) ? (string) $sub_field['name'] : '';
+			$sub_value = '' !== $sub_name && array_key_exists( $sub_name, $row ) ? $row[ $sub_name ] : null;
+			self::add_acf_field_targets( $targets, $post->ID, $sub_field, $sub_value, $context, $path, $focus_path, 1 );
+		}
+
+		return true;
 	}
 
 	/**
@@ -654,7 +862,7 @@ final class MRN_Contextual_Content_Editor {
 		$current_focus_path = array_merge( $focus_path, array( self::acf_focus_field_entry( $field ) ) );
 		$score = self::score_value_match( $value, $context );
 		$type  = isset( $field['type'] ) && is_scalar( $field['type'] ) ? sanitize_key( (string) $field['type'] ) : '';
-		if ( $score > 0 && ! in_array( $type, array( 'group', 'repeater', 'flexible_content' ), true ) ) {
+		if ( $score > 0 && self::is_fuzzy_matchable_acf_field( $field ) && ! in_array( $type, array( 'group', 'repeater', 'flexible_content' ), true ) ) {
 			if ( $depth > 0 ) {
 				$score += 6;
 			}
@@ -667,11 +875,39 @@ final class MRN_Contextual_Content_Editor {
 				min( 116, $score ),
 				implode( ' > ', array_filter( $current_path ) ),
 				self::preview_value( $value, $context, $field ),
-				$current_focus_path
+				$current_focus_path,
+				self::context_text( $context )
 			);
 		}
 
 		self::walk_acf_subfields( $targets, $post_id, $field, $value, $context, $current_path, $current_focus_path, $depth );
+	}
+
+	/**
+	 * Determine whether a leaf ACF field represents rendered content.
+	 *
+	 * Editor-only metadata can contain the same words as a visible heading but
+	 * should never win value-based detection. Explicit template attributes still
+	 * bypass this fuzzy-only exclusion through add_direct_target().
+	 *
+	 * @param array<string, mixed> $field ACF field definition.
+	 * @return bool
+	 */
+	private static function is_fuzzy_matchable_acf_field( array $field ) {
+		$name  = isset( $field['name'] ) && is_scalar( $field['name'] ) ? sanitize_key( (string) $field['name'] ) : '';
+		$label = isset( $field['label'] ) && is_scalar( $field['label'] ) ? sanitize_text_field( (string) $field['label'] ) : '';
+		$excluded_names = (array) apply_filters(
+			'mrn_contextual_content_editor_excluded_fuzzy_acf_field_names',
+			array( 'anchor', 'internal_name' ),
+			$field
+		);
+		$excluded_names = array_filter( array_map( 'sanitize_key', $excluded_names ) );
+
+		if ( '' !== $name && in_array( $name, $excluded_names, true ) ) {
+			return false;
+		}
+
+		return 1 !== preg_match( '/(?:admin use only|editor[- ]only)/i', $label );
 	}
 
 	/**
@@ -986,6 +1222,11 @@ final class MRN_Contextual_Content_Editor {
 		}
 
 		if ( is_scalar( $value ) ) {
+			$matched_preview = self::preview_scalar_match( (string) $value, self::context_text( $context ) );
+			if ( '' !== $matched_preview ) {
+				return $matched_preview;
+			}
+
 			return self::preview_scalar_text( (string) $value );
 		}
 
@@ -1002,6 +1243,41 @@ final class MRN_Contextual_Content_Editor {
 		}
 
 		return self::context_preview( $context );
+	}
+
+	/**
+	 * Build a short scalar preview around the selected front-end text.
+	 *
+	 * @param string $value  Full field value.
+	 * @param string $needle Selected or clicked front-end text.
+	 * @return string
+	 */
+	private static function preview_scalar_match( $value, $needle ) {
+		$value  = self::normalize_preview_text( $value );
+		$needle = self::normalize_preview_text( $needle );
+		if ( '' === $value || strlen( $needle ) < 4 ) {
+			return '';
+		}
+
+		if ( function_exists( 'mb_stripos' ) && function_exists( 'mb_substr' ) && function_exists( 'mb_strlen' ) ) {
+			$position = mb_stripos( $value, $needle );
+			if ( false === $position ) {
+				return '';
+			}
+
+			$start   = max( 0, $position - 34 );
+			$excerpt = trim( mb_substr( $value, $start, 110 ) );
+			return ( $start > 0 ? '...' : '' ) . $excerpt . ( $start + mb_strlen( $excerpt ) < mb_strlen( $value ) ? '...' : '' );
+		}
+
+		$position = stripos( $value, $needle );
+		if ( false === $position ) {
+			return '';
+		}
+
+		$start   = max( 0, $position - 34 );
+		$excerpt = trim( substr( $value, $start, 110 ) );
+		return ( $start > 0 ? '...' : '' ) . $excerpt . ( $start + strlen( $excerpt ) < strlen( $value ) ? '...' : '' );
 	}
 
 	/**
@@ -1170,9 +1446,10 @@ final class MRN_Contextual_Content_Editor {
 	 * @param string               $detail  Display detail.
 	 * @param string               $preview Content preview.
 	 * @param array<int, array<string, mixed>> $focus_path Admin focus path.
+	 * @param string                           $focus_text Exact front-end text to locate inside rich-text fields.
 	 * @return array<string, mixed>
 	 */
-	private static function build_acf_target( $post_id, array $field, $score, $detail, $preview = '', array $focus_path = array() ) {
+	private static function build_acf_target( $post_id, array $field, $score, $detail, $preview = '', array $focus_path = array(), $focus_text = '' ) {
 		$key   = isset( $field['key'] ) && is_scalar( $field['key'] ) ? sanitize_key( (string) $field['key'] ) : '';
 		$name  = isset( $field['name'] ) && is_scalar( $field['name'] ) ? sanitize_key( (string) $field['name'] ) : '';
 		$label = isset( $field['label'] ) && is_scalar( $field['label'] ) ? sanitize_text_field( (string) $field['label'] ) : '';
@@ -1180,6 +1457,17 @@ final class MRN_Contextual_Content_Editor {
 
 		if ( '' === $label ) {
 			$label = '' !== $name ? self::humanize_key( $name ) : __( 'ACF field', 'mrn-contextual-content-editor' );
+		}
+
+		$display_label = $label;
+		$name_label    = '' !== $name ? self::humanize_key( $name ) : '';
+		if ( '' !== $name_label && sanitize_title( $name_label ) !== sanitize_title( $label ) ) {
+			$display_label = sprintf(
+				/* translators: 1: Human-readable field name. 2: ACF field label. */
+				__( '%1$s (%2$s)', 'mrn-contextual-content-editor' ),
+				$name_label,
+				$label
+			);
 		}
 
 		$query_args = array();
@@ -1192,6 +1480,10 @@ final class MRN_Contextual_Content_Editor {
 		}
 
 		$query_args['mrn_cce_focus_label'] = $label;
+		$focus_text = self::limit_string( sanitize_text_field( (string) $focus_text ), 300 );
+		if ( '' !== $focus_text ) {
+			$query_args['mrn_cce_focus_text'] = $focus_text;
+		}
 		if ( ! empty( $focus_path ) ) {
 			$focus_path_json = wp_json_encode( $focus_path );
 			if ( is_string( $focus_path_json ) ) {
@@ -1217,7 +1509,7 @@ final class MRN_Contextual_Content_Editor {
 			'label'     => sprintf(
 				/* translators: %s: ACF field label. */
 				__( 'ACF: %s', 'mrn-contextual-content-editor' ),
-				$label
+				$display_label
 			),
 			'preview'   => '' !== $preview ? $preview : $label,
 			'score'     => (int) $score,

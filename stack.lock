@@ -6,6 +6,6 @@
     "repo_path": "/Users/khofmeyer/Development/MRN/plugins/mrn-contextual-content-editor",
     "integration_target": "mrn-plugin-stack",
     "integration_mode": "in-repo-plugin",
-    "plugin_version": "0.1.0"
+    "plugin_version": "0.4.10"
   }
 }
