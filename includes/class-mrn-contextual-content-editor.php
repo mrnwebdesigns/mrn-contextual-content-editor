@@ -12,7 +12,7 @@ if ( ! defined( 'MRN_CONTEXTUAL_CONTENT_EDITOR_URL' ) ) {
 }
 
 final class MRN_Contextual_Content_Editor {
-	const VERSION      = '0.4.10';
+	const VERSION      = '0.4.11';
 	const AJAX_ACTION  = 'mrn_cce_resolve_target';
 	const AJAX_NONCE   = 'mrn_cce_resolve_target';
 	const SCRIPT_HANDLE = 'mrn-contextual-content-editor';
