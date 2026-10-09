@@ -3,7 +3,7 @@
  * Plugin Name: MRN Contextual Content Editor
  * Description: Adds a logged-in front-end contextual menu that opens matching Classic Editor and ACF fields for the current content.
  * Author: MRN Web Designs
- * Version: 0.4.10
+ * Version: 0.4.11
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
